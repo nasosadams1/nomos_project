@@ -1,6 +1,12 @@
 import { CONTACT_DETAILS, LAST_UPDATED_LABEL } from '../lib/content';
+import { usePageMeta } from '../hooks/usePageMeta';
 
 export default function PrivacyPage() {
+  usePageMeta(
+    'Privacy policy',
+    'Understand what Nomos collects, how intake and consultation-request data is used, and where privacy questions should be directed.',
+  );
+
   return (
     <div className="min-h-screen bg-white py-16">
       <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">

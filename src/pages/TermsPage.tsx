@@ -1,6 +1,12 @@
 import { CONTACT_DETAILS, LAST_UPDATED_LABEL } from '../lib/content';
+import { usePageMeta } from '../hooks/usePageMeta';
 
 export default function TermsPage() {
+  usePageMeta(
+    'Terms of service',
+    'Review the Nomos platform terms covering legal-marketplace use, lawyer discovery, consultation requests, and platform responsibilities.',
+  );
+
   return (
     <div className="min-h-screen bg-white py-16">
       <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">

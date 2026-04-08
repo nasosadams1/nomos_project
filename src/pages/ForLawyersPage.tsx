@@ -1,4 +1,5 @@
 import { Calendar, FileText, MessageSquare, Shield, TrendingUp, Users } from 'lucide-react';
+import { usePageMeta } from '../hooks/usePageMeta';
 import { CONTACT_DETAILS } from '../lib/content';
 
 const features = [
@@ -50,6 +51,11 @@ const benefits = [
 ];
 
 export default function ForLawyersPage() {
+  usePageMeta(
+    'For lawyers',
+    'Learn how Nomos helps firms improve intake quality, consultation operations, and public profile credibility without taking commission on legal fees.',
+  );
+
   return (
     <div className="bg-white">
       <section className="border-b border-slate-200 bg-[linear-gradient(to_bottom,_#f8fafc,_#ffffff)] pt-16 pb-24">

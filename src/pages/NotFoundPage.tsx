@@ -1,6 +1,12 @@
 import { Link } from 'react-router-dom';
+import { usePageMeta } from '../hooks/usePageMeta';
 
 export default function NotFoundPage() {
+  usePageMeta(
+    'Page not found',
+    'The page you requested could not be found. Return to the Nomos home page or browse the lawyer directory.',
+  );
+
   return (
     <div className="min-h-[60vh] bg-slate-50 px-4 py-24">
       <div className="mx-auto max-w-2xl rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">

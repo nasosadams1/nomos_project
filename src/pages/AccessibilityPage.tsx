@@ -1,4 +1,5 @@
 import { Eye, Keyboard, Monitor, Volume2 } from 'lucide-react';
+import { usePageMeta } from '../hooks/usePageMeta';
 import { CONTACT_DETAILS, LAST_UPDATED_LABEL } from '../lib/content';
 
 const currentSupport = [
@@ -37,6 +38,11 @@ const currentSupport = [
 ];
 
 export default function AccessibilityPage() {
+  usePageMeta(
+    'Accessibility',
+    'Read the current accessibility support in Nomos and the areas still being improved across navigation, forms, and portal states.',
+  );
+
   return (
     <div className="min-h-screen bg-white">
       <section className="border-b border-slate-200 bg-[linear-gradient(to_bottom,_#f8fafc,_#ffffff)] pt-16 pb-12">

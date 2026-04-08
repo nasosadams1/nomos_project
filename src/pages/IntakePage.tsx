@@ -1,7 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import Notice from '../components/Notice';
+import { usePageMeta } from '../hooks/usePageMeta';
+import {
+  clearIntakeDraft,
+  loadIntakeDraft,
+  saveIntakeDraft,
+  saveStoredClientContact,
+} from '../lib/browserStorage';
 import {
   BUDGET_OPTIONS,
   CITY_OPTIONS,
@@ -11,7 +18,12 @@ import {
   URGENCY_LEVELS,
 } from '../lib/content';
 import { submitIntakeRequest } from '../lib/api';
-import { getIntakeStepError, sanitizeInlineText, sanitizeIntakeForm } from '../lib/validation';
+import {
+  getIntakeStepError,
+  normalizeEmail,
+  sanitizeInlineText,
+  sanitizeIntakeForm,
+} from '../lib/validation';
 import type { IntakeFormData } from '../types';
 
 const steps = [
@@ -26,17 +38,9 @@ const steps = [
   { id: 9, title: 'Review' },
 ] as const;
 
-export default function IntakePage() {
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const [currentStep, setCurrentStep] = useState(1);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [formStartedAt] = useState(() => Date.now());
-  const [website, setWebsite] = useState('');
-
-  const [formData, setFormData] = useState<Partial<IntakeFormData>>({
-    issue_type: searchParams.get('issue') || '',
+function createEmptyIntakeState(prefilledIssueType = ''): Partial<IntakeFormData> {
+  return {
+    issue_type: prefilledIssueType,
     location: '',
     urgency: '',
     preferred_language: 'Greek',
@@ -46,7 +50,52 @@ export default function IntakePage() {
     client_name: '',
     client_email: '',
     client_phone: '',
+  };
+}
+
+export default function IntakePage() {
+  usePageMeta(
+    'Legal intake',
+    'Answer structured intake questions so Nomos can surface lawyers who better match your matter, language, urgency, and budget.',
+  );
+
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const prefilledIssueType = searchParams.get('issue') || '';
+  const savedDraft = loadIntakeDraft();
+  const [currentStep, setCurrentStep] = useState(() => {
+    const draftStep = savedDraft?.currentStep ?? 1;
+    return draftStep >= 1 && draftStep <= steps.length ? draftStep : 1;
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [formStartedAt] = useState(() => Date.now());
+  const [website, setWebsite] = useState('');
+  const [draftRestored, setDraftRestored] = useState(Boolean(savedDraft));
+
+  const [formData, setFormData] = useState<Partial<IntakeFormData>>(() => ({
+    ...createEmptyIntakeState(prefilledIssueType),
+    ...(savedDraft?.formData ?? {}),
+    issue_type: prefilledIssueType || savedDraft?.formData?.issue_type || '',
+    preferred_language: savedDraft?.formData?.preferred_language || 'Greek',
+  }));
+
+  useEffect(() => {
+    saveIntakeDraft({
+      currentStep,
+      formData: Object.fromEntries(
+        Object.entries(formData).map(([key, value]) => [key, value ?? '']),
+      ) as Record<string, string>,
+    });
+  }, [currentStep, formData]);
+
+  useEffect(() => {
+    saveStoredClientContact({
+      name: sanitizeInlineText(formData.client_name ?? ''),
+      email: normalizeEmail(formData.client_email ?? ''),
+      phone: sanitizeInlineText(formData.client_phone ?? ''),
+    });
+  }, [formData.client_email, formData.client_name, formData.client_phone]);
 
   const updateField = (field: keyof IntakeFormData, value: string) => {
     setSubmitError(null);
@@ -77,6 +126,14 @@ export default function IntakePage() {
     window.scrollTo(0, 0);
   };
 
+  const resetDraft = () => {
+    clearIntakeDraft();
+    setDraftRestored(false);
+    setSubmitError(null);
+    setCurrentStep(1);
+    setFormData(createEmptyIntakeState(prefilledIssueType));
+  };
+
   const handleSubmit = async () => {
     const reviewError = getIntakeStepError(8, formData);
     if (reviewError) {
@@ -91,6 +148,12 @@ export default function IntakePage() {
 
     try {
       await submitIntakeRequest(payload, { startedAt: formStartedAt, website });
+      saveStoredClientContact({
+        name: payload.client_name,
+        email: payload.client_email,
+        phone: payload.client_phone,
+      });
+      clearIntakeDraft();
       navigate('/lawyers', { state: { intake: payload } });
     } catch (error) {
       console.error('Error submitting intake:', error);
@@ -110,12 +173,14 @@ export default function IntakePage() {
     <div className="min-h-screen bg-slate-50 py-12">
       <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
         <div className="mb-8">
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
                 Legal intake
               </p>
-              <h1 className="mt-2 text-3xl font-bold text-slate-900">Tell us enough to route this well.</h1>
+              <h1 className="mt-2 text-3xl font-bold text-slate-900">
+                Tell us enough to route this well.
+              </h1>
             </div>
             <span className="text-sm text-slate-600">
               Step {currentStep} of {steps.length}
@@ -129,6 +194,22 @@ export default function IntakePage() {
             />
           </div>
         </div>
+
+        {draftRestored ? (
+          <div className="mb-6">
+            <Notice title="Draft restored" tone="info">
+              We restored the intake draft from this browser tab so you can continue where you left
+              off.
+            </Notice>
+            <button
+              type="button"
+              onClick={resetDraft}
+              className="mt-3 text-sm font-medium text-slate-600 transition-colors hover:text-slate-900"
+            >
+              Start over instead
+            </button>
+          </div>
+        ) : null}
 
         {submitError ? (
           <div className="mb-6">
@@ -270,7 +351,9 @@ export default function IntakePage() {
 
           {currentStep === 6 ? (
             <div>
-              <h2 className="text-2xl font-semibold text-slate-900">What is your consultation budget?</h2>
+              <h2 className="text-2xl font-semibold text-slate-900">
+                What is your consultation budget?
+              </h2>
               <p className="mt-3 text-slate-600">
                 We surface lawyers with transparent consultation fees so you can compare fairly.
               </p>
@@ -316,7 +399,9 @@ export default function IntakePage() {
 
           {currentStep === 8 ? (
             <div>
-              <h2 className="text-2xl font-semibold text-slate-900">How should lawyers reach you?</h2>
+              <h2 className="text-2xl font-semibold text-slate-900">
+                How should lawyers reach you?
+              </h2>
               <p className="mt-3 text-slate-600">
                 Use the contact details you want tied to the follow-up and portal access flow.
               </p>
@@ -325,6 +410,7 @@ export default function IntakePage() {
                   <label className="mb-2 block text-sm font-medium text-slate-700">Full name</label>
                   <input
                     type="text"
+                    autoComplete="name"
                     value={formData.client_name}
                     onChange={(event) => updateField('client_name', event.target.value)}
                     placeholder="Your full name"
@@ -337,6 +423,7 @@ export default function IntakePage() {
                   </label>
                   <input
                     type="email"
+                    autoComplete="email"
                     value={formData.client_email}
                     onChange={(event) => updateField('client_email', event.target.value)}
                     placeholder="your.email@example.com"
@@ -349,14 +436,20 @@ export default function IntakePage() {
                   </label>
                   <input
                     type="tel"
+                    autoComplete="tel"
                     value={formData.client_phone}
                     onChange={(event) => updateField('client_phone', event.target.value)}
                     placeholder="+30 123 456 7890"
                     className="w-full rounded-xl border border-slate-300 px-4 py-3 focus:border-transparent focus:ring-2 focus:ring-slate-900"
                   />
-                  <p className="mt-2 text-sm text-slate-500">Optional, but useful for urgent matters.</p>
+                  <p className="mt-2 text-sm text-slate-500">
+                    Optional, but useful for urgent matters.
+                  </p>
                 </div>
-                <div className="absolute -left-[10000px] top-auto h-px w-px overflow-hidden" aria-hidden="true">
+                <div
+                  className="absolute -left-[10000px] top-auto h-px w-px overflow-hidden"
+                  aria-hidden="true"
+                >
                   <label htmlFor="intake-website">Company website</label>
                   <input
                     id="intake-website"
@@ -393,7 +486,7 @@ export default function IntakePage() {
                   label="Contact"
                   value={[formData.client_name, formData.client_email, formData.client_phone]
                     .filter(Boolean)
-                    .join(' · ')}
+                    .join(' / ')}
                 />
               </div>
 
@@ -402,15 +495,22 @@ export default function IntakePage() {
                 <ul className="mt-4 space-y-3 text-sm text-slate-700">
                   <li className="flex items-start gap-3">
                     <Check className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-600" />
-                    <span>The request is stored and then matched against verified lawyer profiles.</span>
+                    <span>
+                      The request is stored and then matched against verified lawyer profiles.
+                    </span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Check className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-600" />
-                    <span>You review the lawyers, their fees, and their profile details before requesting a consultation.</span>
+                    <span>
+                      You review the lawyers, their fees, and their profile details before
+                      requesting a consultation.
+                    </span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Check className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-600" />
-                    <span>Submitting this form does not create an attorney-client relationship.</span>
+                    <span>
+                      Submitting this form does not create an attorney-client relationship.
+                    </span>
                   </li>
                 </ul>
               </div>

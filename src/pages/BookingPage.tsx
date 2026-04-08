@@ -3,7 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Building, Calendar, Check, Clock, Video } from 'lucide-react';
 import LawyerAvatar from '../components/LawyerAvatar';
 import Notice from '../components/Notice';
+import { usePageMeta } from '../hooks/usePageMeta';
 import { requestConsultation } from '../lib/api';
+import { loadStoredClientContact, saveStoredClientContact } from '../lib/browserStorage';
 import { useLawyerAvailability } from '../hooks/useLawyerAvailability';
 import {
   CONSULTATION_TIME_SLOTS,
@@ -26,6 +28,7 @@ type BookingStep = 'type' | 'datetime' | 'details' | 'confirm';
 export default function BookingPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const storedContact = loadStoredClientContact();
   const [lawyer, setLawyer] = useState<Lawyer | null>(null);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -42,9 +45,9 @@ export default function BookingPage() {
     type: '',
     date: '',
     time: '',
-    name: '',
-    email: '',
-    phone: '',
+    name: storedContact?.name ?? '',
+    email: storedContact?.email ?? '',
+    phone: storedContact?.phone ?? '',
     notes: '',
   });
   const {
@@ -52,6 +55,11 @@ export default function BookingPage() {
     loading: loadingAvailability,
     error: availabilityError,
   } = useLawyerAvailability(lawyer ? [lawyer.id] : []);
+
+  usePageMeta(
+    lawyer ? `Request consultation with ${lawyer.full_name}` : 'Consultation request',
+    'Choose a consultation format, pick a request window, and send your details so the lawyer or firm can confirm the appointment.',
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -102,6 +110,14 @@ export default function BookingPage() {
     };
   }, [id]);
 
+  useEffect(() => {
+    saveStoredClientContact({
+      name: booking.name.trim(),
+      email: booking.email.trim().toLowerCase(),
+      phone: booking.phone.trim(),
+    });
+  }, [booking.email, booking.name, booking.phone]);
+
   const dates = getUpcomingBusinessDates(10);
   const availability = lawyer ? availabilityByLawyer[lawyer.id] : undefined;
   const reservedSlotKeyList = availability?.reservedSlotKeys ?? [];
@@ -112,6 +128,9 @@ export default function BookingPage() {
   const isSelectedSlotReserved = selectedSlotKey
     ? reservedSlotKeyList.includes(selectedSlotKey)
     : false;
+  const canRequestConsultation = Boolean(
+    lawyer && (lawyer.online_consultation || lawyer.in_person_consultation),
+  );
 
   useEffect(() => {
     if (!isSelectedSlotReserved) {
@@ -119,6 +138,8 @@ export default function BookingPage() {
     }
 
     setBooking((prev) => ({ ...prev, time: '' }));
+    setSubmitError('That request window was taken while you were here. Please choose another one.');
+    setStep('datetime');
   }, [isSelectedSlotReserved]);
 
   const handleSubmit = async () => {
@@ -154,16 +175,19 @@ export default function BookingPage() {
     setIsSubmitting(true);
 
     try {
-      await requestConsultation({
-        lawyerId: lawyer.id,
-        consultationType: booking.type,
-        dateKey: booking.date,
-        timeKey: booking.time,
-        clientName: booking.name,
-        clientEmail: booking.email,
-        clientPhone: booking.phone,
-        notes: booking.notes,
-      }, { startedAt: formStartedAt, website });
+      await requestConsultation(
+        {
+          lawyerId: lawyer.id,
+          consultationType: booking.type,
+          dateKey: booking.date,
+          timeKey: booking.time,
+          clientName: booking.name,
+          clientEmail: booking.email,
+          clientPhone: booking.phone,
+          notes: booking.notes,
+        },
+        { startedAt: formStartedAt, website },
+      );
 
       setIsSubmitting(false);
       setStep('confirm');
@@ -220,7 +244,9 @@ export default function BookingPage() {
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
             Consultation request
           </p>
-          <h1 className="mt-3 text-4xl font-bold text-slate-900">Request time with {lawyer.full_name}</h1>
+          <h1 className="mt-3 text-4xl font-bold text-slate-900">
+            Request time with {lawyer.full_name}
+          </h1>
           <p className="mt-3 text-lg leading-8 text-slate-600">
             Choose a request window and send your details. Final confirmation still comes from the
             lawyer or firm.
@@ -257,55 +283,77 @@ export default function BookingPage() {
 
             {step === 'type' ? (
               <div>
-                <h2 className="text-2xl font-semibold text-slate-900">Choose the consultation format</h2>
-                <div className="mt-6 space-y-4">
-                  {lawyer.online_consultation ? (
+                <h2 className="text-2xl font-semibold text-slate-900">
+                  Choose the consultation format
+                </h2>
+                {!canRequestConsultation ? (
+                  <div className="mt-6">
+                    <Notice title="Consultation requests unavailable" tone="info">
+                      This profile has not published consultation formats yet, so the request flow
+                      is paused until the listing is updated.
+                    </Notice>
                     <button
                       type="button"
-                      onClick={() => {
-                        setBooking((prev) => ({ ...prev, type: 'online' }));
-                        setStep('datetime');
-                      }}
-                      className="w-full rounded-2xl border-2 border-slate-200 p-6 text-left transition-all hover:border-slate-300"
+                      onClick={() => navigate(`/lawyer/${lawyer.id}`)}
+                      className="mt-6 rounded-lg border border-slate-300 px-6 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
                     >
-                      <div className="flex items-start gap-4">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100">
-                          <Video className="h-6 w-6 text-slate-700" />
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-semibold text-slate-900">Online consultation</h3>
-                          <p className="mt-2 text-sm leading-6 text-slate-600">
-                            Suitable for quick advice, remote clients, or first-pass review.
-                          </p>
-                        </div>
-                      </div>
+                      Back to profile
                     </button>
-                  ) : null}
+                  </div>
+                ) : (
+                  <div className="mt-6 space-y-4">
+                    {lawyer.online_consultation ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBooking((prev) => ({ ...prev, type: 'online' }));
+                          setStep('datetime');
+                        }}
+                        className="w-full rounded-2xl border-2 border-slate-200 p-6 text-left transition-all hover:border-slate-300"
+                      >
+                        <div className="flex items-start gap-4">
+                          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100">
+                            <Video className="h-6 w-6 text-slate-700" />
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-semibold text-slate-900">
+                              Online consultation
+                            </h3>
+                            <p className="mt-2 text-sm leading-6 text-slate-600">
+                              Suitable for quick advice, remote clients, or first-pass review.
+                            </p>
+                          </div>
+                        </div>
+                      </button>
+                    ) : null}
 
-                  {lawyer.in_person_consultation ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setBooking((prev) => ({ ...prev, type: 'in-person' }));
-                        setStep('datetime');
-                      }}
-                      className="w-full rounded-2xl border-2 border-slate-200 p-6 text-left transition-all hover:border-slate-300"
-                    >
-                      <div className="flex items-start gap-4">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100">
-                          <Building className="h-6 w-6 text-slate-700" />
+                    {lawyer.in_person_consultation ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBooking((prev) => ({ ...prev, type: 'in-person' }));
+                          setStep('datetime');
+                        }}
+                        className="w-full rounded-2xl border-2 border-slate-200 p-6 text-left transition-all hover:border-slate-300"
+                      >
+                        <div className="flex items-start gap-4">
+                          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100">
+                            <Building className="h-6 w-6 text-slate-700" />
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-semibold text-slate-900">
+                              In-person meeting
+                            </h3>
+                            <p className="mt-2 text-sm leading-6 text-slate-600">
+                              Request an office meeting in {lawyer.city} if face-to-face discussion
+                              matters for the issue.
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <h3 className="text-lg font-semibold text-slate-900">In-person meeting</h3>
-                          <p className="mt-2 text-sm leading-6 text-slate-600">
-                            Request an office meeting in {lawyer.city} if face-to-face discussion
-                            matters for the issue.
-                          </p>
-                        </div>
-                      </div>
-                    </button>
-                  ) : null}
-                </div>
+                      </button>
+                    ) : null}
+                  </div>
+                )}
               </div>
             ) : null}
 
@@ -327,7 +375,9 @@ export default function BookingPage() {
                 </div>
 
                 {loadingAvailability ? (
-                  <p className="mt-4 text-sm text-slate-500">Checking currently requested windows...</p>
+                  <p className="mt-4 text-sm text-slate-500">
+                    Checking currently requested windows...
+                  </p>
                 ) : nextAvailableSlot ? (
                   <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
                     <p className="font-semibold">Earliest open request window</p>
@@ -362,7 +412,11 @@ export default function BookingPage() {
                           key={dateKey}
                           type="button"
                           onClick={() =>
-                            setBooking((prev) => ({ ...prev, date: dateKey, time: prev.date === dateKey ? prev.time : '' }))
+                            setBooking((prev) => ({
+                              ...prev,
+                              date: dateKey,
+                              time: prev.date === dateKey ? prev.time : '',
+                            }))
                           }
                           className={`rounded-2xl border-2 p-3 text-center transition-all ${
                             isSelected
@@ -415,7 +469,8 @@ export default function BookingPage() {
                       reservedSlotKeys.has(createSlotKey(booking.date, time)),
                     ) ? (
                       <p className="mt-3 text-sm text-rose-700">
-                        That day is currently full. Choose another date or use the earliest open request window above.
+                        That day is currently full. Choose another date or use the earliest open
+                        request window above.
                       </p>
                     ) : null}
                   </div>
@@ -452,6 +507,7 @@ export default function BookingPage() {
                   <InputField
                     label="Full name"
                     value={booking.name}
+                    autoComplete="name"
                     error={fieldErrors.name}
                     onChange={(value) => setBooking((prev) => ({ ...prev, name: value }))}
                     placeholder="Your full name"
@@ -459,6 +515,7 @@ export default function BookingPage() {
                   <InputField
                     label="Email address"
                     type="email"
+                    autoComplete="email"
                     value={booking.email}
                     error={fieldErrors.email}
                     onChange={(value) => setBooking((prev) => ({ ...prev, email: value }))}
@@ -467,6 +524,7 @@ export default function BookingPage() {
                   <InputField
                     label="Phone number"
                     type="tel"
+                    autoComplete="tel"
                     value={booking.phone}
                     error={fieldErrors.phone}
                     onChange={(value) => setBooking((prev) => ({ ...prev, phone: value }))}
@@ -478,7 +536,9 @@ export default function BookingPage() {
                     </label>
                     <textarea
                       value={booking.notes}
-                      onChange={(event) => setBooking((prev) => ({ ...prev, notes: event.target.value }))}
+                      onChange={(event) =>
+                        setBooking((prev) => ({ ...prev, notes: event.target.value }))
+                      }
                       placeholder="Add any important context the lawyer should know before confirming the appointment."
                       rows={5}
                       className="w-full rounded-xl border border-slate-300 px-4 py-3 focus:border-transparent focus:ring-2 focus:ring-slate-900"
@@ -486,10 +546,15 @@ export default function BookingPage() {
                     {fieldErrors.notes ? (
                       <p className="mt-2 text-sm text-rose-700">{fieldErrors.notes}</p>
                     ) : (
-                      <p className="mt-2 text-sm text-slate-500">Optional, but helpful for context.</p>
+                      <p className="mt-2 text-sm text-slate-500">
+                        Optional, but helpful for context.
+                      </p>
                     )}
                   </div>
-                  <div className="absolute -left-[10000px] top-auto h-px w-px overflow-hidden" aria-hidden="true">
+                  <div
+                    className="absolute -left-[10000px] top-auto h-px w-px overflow-hidden"
+                    aria-hidden="true"
+                  >
                     <label htmlFor="booking-website">Company website</label>
                     <input
                       id="booking-website"
@@ -507,8 +572,11 @@ export default function BookingPage() {
                   <div className="mt-4 space-y-3 text-sm text-slate-700">
                     <SummaryRow label="Format" value={formatConsultationType(booking.type)} />
                     <SummaryRow label="Date" value={formatLongDate(booking.date)} />
-                    <SummaryRow label="Time window" value={booking.time} />
-                    <SummaryRow label="Consultation fee" value={formatCurrency(lawyer.consultation_fee)} />
+                    <SummaryRow label="Time window" value={`${booking.time} Athens time`} />
+                    <SummaryRow
+                      label="Consultation fee"
+                      value={formatCurrency(lawyer.consultation_fee)}
+                    />
                   </div>
                 </div>
 
@@ -537,7 +605,9 @@ export default function BookingPage() {
                 <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
                   <Check className="h-8 w-8 text-emerald-600" />
                 </div>
-                <h2 className="mt-6 text-3xl font-bold text-slate-900">Consultation request received</h2>
+                <h2 className="mt-6 text-3xl font-bold text-slate-900">
+                  Consultation request received
+                </h2>
                 <p className="mt-3 text-lg leading-8 text-slate-600">
                   Your request has been sent to {lawyer.full_name}. Final confirmation still comes
                   from the lawyer or firm.
@@ -546,7 +616,7 @@ export default function BookingPage() {
                 <div className="mx-auto mt-8 max-w-md rounded-2xl bg-slate-50 p-6 text-left">
                   <div className="space-y-3 text-sm text-slate-700">
                     <SummaryRow label="Date" value={formatLongDate(booking.date)} />
-                    <SummaryRow label="Time window" value={booking.time} />
+                    <SummaryRow label="Time window" value={`${booking.time} Athens time`} />
                     <SummaryRow label="Format" value={formatConsultationType(booking.type)} />
                   </div>
                 </div>
@@ -614,7 +684,9 @@ export default function BookingPage() {
                 </li>
                 <li className="flex items-start gap-3">
                   <Check className="mt-0.5 h-5 w-5 flex-shrink-0 text-slate-500" />
-                  <span>Submitting a request still does not create an attorney-client relationship.</span>
+                  <span>
+                    Submitting a request still does not create an attorney-client relationship.
+                  </span>
                 </li>
               </ul>
             </div>
@@ -654,6 +726,7 @@ function InputField({
   onChange,
   placeholder,
   type = 'text',
+  autoComplete,
   error,
 }: {
   label: string;
@@ -661,6 +734,7 @@ function InputField({
   onChange: (value: string) => void;
   placeholder: string;
   type?: string;
+  autoComplete?: string;
   error?: string;
 }) {
   return (
@@ -669,6 +743,7 @@ function InputField({
       <input
         type={type}
         value={value}
+        autoComplete={autoComplete}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         className="w-full rounded-xl border border-slate-300 px-4 py-3 focus:border-transparent focus:ring-2 focus:ring-slate-900"

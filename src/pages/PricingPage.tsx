@@ -1,4 +1,5 @@
 import { Check } from 'lucide-react';
+import { usePageMeta } from '../hooks/usePageMeta';
 import { CONTACT_DETAILS, PRICING_PLANS } from '../lib/content';
 
 const faqs = [
@@ -21,6 +22,11 @@ const faqs = [
 ];
 
 export default function PricingPage() {
+  usePageMeta(
+    'Pricing',
+    'See launch pricing guidance for lawyers and firms using Nomos for structured intake, directory visibility, and consultation workflows.',
+  );
+
   return (
     <div className="bg-white">
       <section className="border-b border-slate-200 bg-[linear-gradient(to_bottom,_#f8fafc,_#ffffff)] pt-16 pb-12">

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import LawyerAvatar from '../components/LawyerAvatar';
 import Notice from '../components/Notice';
+import { usePageMeta } from '../hooks/usePageMeta';
 import { useLawyerAvailability } from '../hooks/useLawyerAvailability';
 import { formatAvailabilitySlot, formatCurrency, formatResponseTime } from '../lib/formatters';
 import { supabase, supabaseConfigError } from '../lib/supabase';
@@ -33,6 +34,11 @@ export default function LawyerProfilePage() {
     loading: loadingAvailability,
     error: availabilityError,
   } = useLawyerAvailability(lawyer ? [lawyer.id] : []);
+
+  usePageMeta(
+    lawyer ? lawyer.full_name : 'Lawyer profile',
+    'Review lawyer credentials, languages, consultation fee, and request-window availability before sending a consultation request.',
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -153,6 +159,7 @@ export default function LawyerProfilePage() {
     },
   ];
   const nextAvailableSlot = availabilityByLawyer[lawyer.id]?.nextAvailableSlot ?? null;
+  const canRequestConsultation = lawyer.online_consultation || lawyer.in_person_consultation;
 
   return (
     <div className="min-h-screen bg-slate-50 pb-16">
@@ -173,6 +180,15 @@ export default function LawyerProfilePage() {
               </Notice>
             </div>
           ) : null}
+
+          <div className="mb-6">
+            <Link
+              to="/lawyers"
+              className="text-sm font-medium text-slate-600 transition-colors hover:text-slate-900"
+            >
+              Back to directory
+            </Link>
+          </div>
 
           <div className="grid gap-8 lg:grid-cols-3">
             <div className="lg:col-span-2">
@@ -234,8 +250,9 @@ export default function LawyerProfilePage() {
                   {formatCurrency(lawyer.consultation_fee)}
                 </p>
                 <p className="mt-3 text-sm leading-6 text-slate-600">
-                  Request a consultation window and the lawyer or firm will confirm the appointment
-                  details directly.
+                  {canRequestConsultation
+                    ? 'Request a consultation window and the lawyer or firm will confirm the appointment details directly.'
+                    : 'This profile is visible, but consultation formats have not been published yet.'}
                 </p>
                 <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-700">
                   {loadingAvailability
@@ -250,9 +267,10 @@ export default function LawyerProfilePage() {
                 <button
                   type="button"
                   onClick={() => navigate(`/booking/${lawyer.id}`)}
-                  className="mt-6 w-full rounded-xl bg-slate-900 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-slate-800"
+                  disabled={!canRequestConsultation}
+                  className="mt-6 w-full rounded-xl bg-slate-900 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Request consultation
+                  {canRequestConsultation ? 'Request consultation' : 'Consultation unavailable'}
                 </button>
                 <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-700">
                   Typical first response: {formatResponseTime(lawyer.response_time_hours).toLowerCase()}
@@ -280,7 +298,7 @@ export default function LawyerProfilePage() {
                   <ConsultationCard
                     icon={<Video className="h-5 w-5 text-slate-700" />}
                     title="Online consultation"
-                    description="Suitable for quick advice, follow-up, or clients outside the lawyer’s city."
+                    description="Suitable for quick advice, follow-up, or clients outside the lawyer's city."
                   />
                 ) : null}
                 {lawyer.in_person_consultation ? (
@@ -307,7 +325,10 @@ export default function LawyerProfilePage() {
               ) : (
                 <div className="mt-6 space-y-6">
                   {reviews.map((review) => (
-                    <div key={review.id} className="border-b border-slate-200 pb-6 last:border-b-0 last:pb-0">
+                    <div
+                      key={review.id}
+                      className="border-b border-slate-200 pb-6 last:border-b-0 last:pb-0"
+                    >
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <p className="font-semibold text-slate-900">{review.client_name}</p>
@@ -386,15 +407,17 @@ export default function LawyerProfilePage() {
             <div className="rounded-3xl bg-slate-900 p-6 text-white">
               <h3 className="text-xl font-semibold">Ready to continue?</h3>
               <p className="mt-3 leading-7 text-slate-300">
-                Request a consultation and the lawyer or firm can confirm timing and any meeting
-                details directly.
+                {canRequestConsultation
+                  ? 'Request a consultation and the lawyer or firm can confirm timing and any meeting details directly.'
+                  : 'This profile needs consultation-format details before the request flow can continue.'}
               </p>
               <button
                 type="button"
                 onClick={() => navigate(`/booking/${lawyer.id}`)}
-                className="mt-5 w-full rounded-xl bg-white px-6 py-3 font-semibold text-slate-900 transition-colors hover:bg-slate-100"
+                disabled={!canRequestConsultation}
+                className="mt-5 w-full rounded-xl bg-white px-6 py-3 font-semibold text-slate-900 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Request consultation
+                {canRequestConsultation ? 'Request consultation' : 'Consultation unavailable'}
               </button>
             </div>
           </div>

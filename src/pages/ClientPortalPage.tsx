@@ -10,8 +10,10 @@ import {
   Shield,
 } from 'lucide-react';
 import Notice from '../components/Notice';
+import { usePageMeta } from '../hooks/usePageMeta';
 import { usePortalData } from '../hooks/usePortalData';
 import { useSupabaseSession } from '../hooks/useSupabaseSession';
+import { loadStoredClientContact } from '../lib/browserStorage';
 import { CONTACT_DETAILS } from '../lib/content';
 import { formatConsultationType, formatCurrency, formatDateTime } from '../lib/formatters';
 import { getUnreadMessageCount } from '../lib/portal';
@@ -19,7 +21,13 @@ import { supabase, supabaseConfigError } from '../lib/supabase';
 import { isValidEmail, normalizeEmail } from '../lib/validation';
 
 export default function ClientPortalPage() {
-  const [authEmail, setAuthEmail] = useState('');
+  usePageMeta(
+    'Client portal',
+    'Sign in with the same email tied to your intake or consultation requests to view consultations, cases, and messages.',
+  );
+
+  const storedClientContact = loadStoredClientContact();
+  const [authEmail, setAuthEmail] = useState(storedClientContact?.email ?? '');
   const [authError, setAuthError] = useState<string | null>(null);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const { session, loading: loadingSession, error: sessionError } = useSupabaseSession();
@@ -368,6 +376,24 @@ export default function ClientPortalPage() {
                   </div>
                 )}
               </section>
+
+              {portalData.consultations.length === 0
+              && portalData.cases.length === 0
+              && portalData.messages.length === 0 ? (
+                <div className="mt-8">
+                  <Notice title="No records visible yet" tone="info">
+                    If you recently submitted intake or a consultation request, make sure you are
+                    signed in with the same email address. If records still do not appear, contact{' '}
+                    <a
+                      href={`mailto:${CONTACT_DETAILS.generalEmail}`}
+                      className="font-semibold underline"
+                    >
+                      {CONTACT_DETAILS.generalEmail}
+                    </a>
+                    .
+                  </Notice>
+                </div>
+              ) : null}
             </>
           )}
         </main>
