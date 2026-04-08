@@ -28,9 +28,10 @@ const toneConfig = {
 export default function Notice({ title, children, tone = 'info' }: NoticeProps) {
   const config = toneConfig[tone];
   const Icon = config.icon;
+  const role = tone === 'error' ? 'alert' : 'status';
 
   return (
-    <div className={`rounded-xl border p-4 ${config.container}`} role="status">
+    <div className={`rounded-xl border p-4 ${config.container}`} role={role}>
       <div className="flex items-start gap-3">
         <Icon className={`mt-0.5 h-5 w-5 flex-shrink-0 ${config.iconClass}`} />
         <div>

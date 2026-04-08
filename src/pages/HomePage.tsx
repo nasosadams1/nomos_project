@@ -1,38 +1,62 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Clock, Lock, Scale, Shield, Users } from 'lucide-react';
+import LawyerAvatar from '../components/LawyerAvatar';
+import Notice from '../components/Notice';
+import { usePageMeta } from '../hooks/usePageMeta';
 import { ISSUE_TYPES } from '../lib/content';
 import { formatCurrency } from '../lib/formatters';
+import { supabase } from '../lib/supabase';
+import type { Lawyer } from '../types';
 
-const featuredLawyers = [
+type FeaturedLawyerCard = {
+  id: string | null;
+  full_name: string;
+  photo_url: string | null;
+  city: string;
+  primaryPractice: string;
+  rating: number;
+  review_count: number;
+  consultation_fee: number;
+  fallback: boolean;
+};
+
+const fallbackFeaturedLawyers: FeaturedLawyerCard[] = [
   {
-    name: 'Maria Papadopoulos',
-    photo:
+    id: null,
+    full_name: 'Maria Papadopoulos',
+    photo_url:
       'https://images.pexels.com/photos/5668772/pexels-photo-5668772.jpeg?auto=compress&cs=tinysrgb&w=400',
     city: 'Athens',
-    area: 'Family law',
+    primaryPractice: 'Family law',
     rating: 4.9,
-    reviews: 47,
-    fee: 120,
+    review_count: 47,
+    consultation_fee: 120,
+    fallback: true,
   },
   {
-    name: 'Sofia Dimitriou',
-    photo:
+    id: null,
+    full_name: 'Sofia Dimitriou',
+    photo_url:
       'https://images.pexels.com/photos/3760514/pexels-photo-3760514.jpeg?auto=compress&cs=tinysrgb&w=400',
     city: 'Patras',
-    area: 'Immigration law',
+    primaryPractice: 'Immigration law',
     rating: 4.9,
-    reviews: 62,
-    fee: 90,
+    review_count: 62,
+    consultation_fee: 90,
+    fallback: true,
   },
   {
-    name: 'Konstantinos Georgiou',
-    photo:
+    id: null,
+    full_name: 'Konstantinos Georgiou',
+    photo_url:
       'https://images.pexels.com/photos/5668858/pexels-photo-5668858.jpeg?auto=compress&cs=tinysrgb&w=400',
     city: 'Thessaloniki',
-    area: 'Business contracts',
+    primaryPractice: 'Business contracts',
     rating: 4.8,
-    reviews: 38,
-    fee: 150,
+    review_count: 38,
+    consultation_fee: 150,
+    fallback: true,
   },
 ];
 
@@ -53,7 +77,7 @@ const steps = [
     number: '03',
     title: 'Request the right consultation',
     description:
-      'Choose a time slot, send the request, and continue the conversation through secure portal access.',
+      'Choose a request window, send the request, and continue through signed-in portal access.',
   },
 ];
 
@@ -78,7 +102,71 @@ const faqs = [
 
 const issueCategories = ISSUE_TYPES.filter((issue) => issue !== 'Other');
 
+function mapFeaturedLawyer(lawyer: Lawyer): FeaturedLawyerCard {
+  return {
+    id: lawyer.id,
+    full_name: lawyer.full_name,
+    photo_url: lawyer.photo_url,
+    city: lawyer.city,
+    primaryPractice: lawyer.practice_areas[0] ?? 'General practice',
+    rating: lawyer.rating,
+    review_count: lawyer.review_count,
+    consultation_fee: lawyer.consultation_fee,
+    fallback: false,
+  };
+}
+
 export default function HomePage() {
+  usePageMeta(
+    'Home',
+    'Submit structured legal intake, compare verified lawyers, and request consultations with clearer next steps.',
+  );
+
+  const [featuredLawyers, setFeaturedLawyers] =
+    useState<FeaturedLawyerCard[]>(fallbackFeaturedLawyers);
+  const [featuredError, setFeaturedError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!supabase) {
+      return;
+    }
+
+    let isMounted = true;
+
+    async function loadFeaturedLawyers() {
+      try {
+        const { data, error } = await supabase
+          .from('lawyers')
+          .select('*')
+          .eq('verified', true)
+          .order('rating', { ascending: false })
+          .order('review_count', { ascending: false })
+          .limit(3);
+
+        if (error) {
+          throw error;
+        }
+
+        if (isMounted && data && data.length > 0) {
+          setFeaturedLawyers(data.map((lawyer) => mapFeaturedLawyer(lawyer as Lawyer)));
+          setFeaturedError(null);
+        }
+      } catch {
+        if (isMounted) {
+          setFeaturedError(
+            'Featured profiles are showing a curated fallback while live lawyer data catches up.',
+          );
+        }
+      }
+    }
+
+    void loadFeaturedLawyers();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   return (
     <div className="bg-white">
       <section className="relative overflow-hidden border-b border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(15,23,42,0.08),_transparent_45%),linear-gradient(to_bottom,_#f8fafc,_#ffffff)] pt-16 pb-24">
@@ -136,8 +224,7 @@ export default function HomePage() {
                 What kind of legal matter are you dealing with?
               </h2>
               <p className="mt-2 text-slate-600">
-                Choose a category to prefill the intake flow and shorten the path to a good
-                match.
+                Choose a category to prefill the intake flow and shorten the path to a good match.
               </p>
             </div>
 
@@ -204,28 +291,46 @@ export default function HomePage() {
           <div className="mt-10 grid gap-8 md:grid-cols-3">
             {featuredLawyers.map((lawyer) => (
               <Link
-                key={lawyer.name}
-                to="/lawyers"
+                key={lawyer.id ?? lawyer.full_name}
+                to={lawyer.id ? `/lawyer/${lawyer.id}` : '/lawyers'}
                 className="overflow-hidden rounded-3xl border border-slate-200 bg-white transition-transform hover:-translate-y-1 hover:shadow-xl"
               >
-                <img src={lawyer.photo} alt={lawyer.name} className="h-64 w-full object-cover" />
+                <div className="border-b border-slate-200 bg-[linear-gradient(to_bottom,_#f8fafc,_#ffffff)] p-6">
+                  <LawyerAvatar
+                    name={lawyer.full_name}
+                    photoUrl={lawyer.photo_url}
+                    className="h-32 w-32 rounded-3xl"
+                    textClassName="text-3xl"
+                  />
+                </div>
                 <div className="p-6">
-                  <h3 className="text-lg font-semibold text-slate-900">{lawyer.name}</h3>
+                  <h3 className="text-lg font-semibold text-slate-900">{lawyer.full_name}</h3>
                   <p className="mt-1 text-sm text-slate-600">
-                    {lawyer.area} · {lawyer.city}
+                    {lawyer.primaryPractice} / {lawyer.city}
                   </p>
                   <div className="mt-4 flex items-center justify-between text-sm">
                     <span className="font-medium text-slate-700">
-                      {lawyer.rating} ({lawyer.reviews} reviews)
+                      {lawyer.rating.toFixed(1)} ({lawyer.review_count} reviews)
                     </span>
                     <span className="font-semibold text-slate-900">
-                      {formatCurrency(lawyer.fee)}
+                      {formatCurrency(lawyer.consultation_fee)}
                     </span>
                   </div>
+                  <p className="mt-4 text-sm font-semibold text-slate-900">
+                    {lawyer.fallback ? 'Browse the full directory' : 'Open profile'}
+                  </p>
                 </div>
               </Link>
             ))}
           </div>
+
+          {featuredError ? (
+            <div className="mt-6">
+              <Notice title="Live featured profiles unavailable" tone="info">
+                {featuredError}
+              </Notice>
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -238,7 +343,7 @@ export default function HomePage() {
             <h3 className="mt-5 text-2xl font-semibold text-slate-900">Verified visibility</h3>
             <p className="mt-3 leading-7 text-slate-600">
               The public directory is limited to verified lawyers so clients are not browsing an
-              uncurated list of anyone who can type “attorney” into a profile.
+              uncurated list of anyone who can type "attorney" into a profile.
             </p>
           </div>
 
@@ -249,7 +354,7 @@ export default function HomePage() {
             <h3 className="mt-5 text-2xl font-semibold text-slate-900">Better intake quality</h3>
             <p className="mt-3 leading-7 text-slate-600">
               The intake flow collects the facts lawyers actually need to triage a matter instead
-              of relying on a single “tell us more” textarea.
+              of relying on a single "tell us more" textarea.
             </p>
           </div>
 
