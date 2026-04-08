@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import {
   CalendarClock,
   Clock,
@@ -11,8 +11,17 @@ import {
 } from 'lucide-react';
 import LawyerAvatar from '../components/LawyerAvatar';
 import Notice from '../components/Notice';
+import { usePageMeta } from '../hooks/usePageMeta';
 import { useLawyerAvailability } from '../hooks/useLawyerAvailability';
 import { CITY_OPTIONS, ISSUE_TYPES, LANGUAGE_OPTIONS } from '../lib/content';
+import {
+  buildDirectorySearchParams,
+  createDefaultLawyerFilters,
+  createInitialDirectoryState,
+  getActiveDirectoryFilterChips,
+  type LawyerFilters,
+  type SortKey,
+} from '../lib/directory';
 import {
   formatAvailabilitySlot,
   formatConsultationType,
@@ -23,17 +32,6 @@ import { matchesCity, matchesIssue, matchesLanguage, normalizeText } from '../li
 import { supabase, supabaseConfigError } from '../lib/supabase';
 import type { IntakeFormData, Lawyer } from '../types';
 
-type SortKey = 'rating' | 'fee' | 'experience';
-
-type LawyerFilters = {
-  query: string;
-  city: string;
-  issue: string;
-  language: string;
-  consultationType: string;
-  maxFee: string;
-};
-
 const sortOptions: Array<{ value: SortKey; label: string }> = [
   { value: 'rating', label: 'Rating' },
   { value: 'fee', label: 'Consultation fee' },
@@ -41,23 +39,23 @@ const sortOptions: Array<{ value: SortKey; label: string }> = [
 ];
 
 export default function LawyersPage() {
+  usePageMeta(
+    'Lawyer directory',
+    'Compare verified lawyers by practice area, city, language, fee, and current consultation-request availability.',
+  );
+
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const intakeData = location.state?.intake as Partial<IntakeFormData> | undefined;
+  const initialDirectoryState = createInitialDirectoryState(searchParams, intakeData);
 
   const [lawyers, setLawyers] = useState<Lawyer[]>([]);
   const [filteredLawyers, setFilteredLawyers] = useState<Lawyer[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
-  const [sortBy, setSortBy] = useState<SortKey>('rating');
-  const [filters, setFilters] = useState<LawyerFilters>({
-    query: '',
-    city: intakeData?.location || '',
-    issue: intakeData?.issue_type || '',
-    language: intakeData?.preferred_language || '',
-    consultationType: intakeData?.consultation_format || '',
-    maxFee: '',
-  });
+  const [sortBy, setSortBy] = useState<SortKey>(initialDirectoryState.sortBy);
+  const [filters, setFilters] = useState<LawyerFilters>(initialDirectoryState.filters);
   const {
     availabilityByLawyer,
     loading: loadingAvailability,
@@ -171,15 +169,22 @@ export default function LawyersPage() {
     setFilteredLawyers(next);
   }, [filters, lawyers, sortBy]);
 
+  useEffect(() => {
+    const nextParams = buildDirectorySearchParams(filters, sortBy);
+
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [filters, searchParams, setSearchParams, sortBy]);
+
+  const activeFilterChips = getActiveDirectoryFilterChips(filters);
+
   const clearFilters = () => {
-    setFilters({
-      query: '',
-      city: '',
-      issue: '',
-      language: '',
-      consultationType: '',
-      maxFee: '',
-    });
+    setFilters(createDefaultLawyerFilters());
+  };
+
+  const clearFilter = (key: keyof LawyerFilters) => {
+    setFilters((prev) => ({ ...prev, [key]: '' }));
   };
 
   const getMatchReasons = (lawyer: Lawyer) => {
@@ -275,7 +280,9 @@ export default function LawyersPage() {
         </div>
 
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-700">Max consultation fee</label>
+          <label className="mb-2 block text-sm font-medium text-slate-700">
+            Max consultation fee
+          </label>
           <input
             type="number"
             min="0"
@@ -319,6 +326,15 @@ export default function LawyersPage() {
       </div>
 
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        {intakeData ? (
+          <div className="mb-6">
+            <Notice title="Prefilled from your intake" tone="info">
+              The directory filters were prefilled from the matter details you just submitted. You
+              can widen or narrow them before choosing a lawyer.
+            </Notice>
+          </div>
+        ) : null}
+
         {fetchError ? (
           <div className="mb-6">
             <Notice title="Directory unavailable" tone="error">
@@ -352,6 +368,8 @@ export default function LawyersPage() {
               type="button"
               onClick={() => setShowFilters((open) => !open)}
               className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 lg:hidden"
+              aria-expanded={showFilters}
+              aria-controls="lawyer-filters"
             >
               {showFilters ? (
                 <X className="mr-2 h-4 w-4" />
@@ -376,15 +394,37 @@ export default function LawyersPage() {
           </div>
         </div>
 
+        {activeFilterChips.length > 0 ? (
+          <div className="mb-6 flex flex-wrap gap-2">
+            {activeFilterChips.map((chip) => (
+              <button
+                key={`${chip.key}-${chip.value}`}
+                type="button"
+                onClick={() => clearFilter(chip.key)}
+                className="inline-flex items-center rounded-full border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-50"
+              >
+                <span className="font-medium">{chip.label}:</span>
+                <span className="ml-1">{chip.value}</span>
+                <X className="ml-2 h-4 w-4" />
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         <div className="grid gap-8 lg:grid-cols-4">
-          <aside className={`lg:col-span-1 ${showFilters ? 'block' : 'hidden lg:block'}`}>
+          <aside
+            id="lawyer-filters"
+            className={`lg:col-span-1 ${showFilters ? 'block' : 'hidden lg:block'}`}
+          >
             <div className="sticky top-24">{filterPanel}</div>
           </aside>
 
-          <main className="lg:col-span-3">
+          <section className="lg:col-span-3">
             {filteredLawyers.length === 0 ? (
               <div className="rounded-3xl border border-slate-200 bg-white p-12 text-center">
-                <h2 className="text-2xl font-semibold text-slate-900">No lawyers match these filters.</h2>
+                <h2 className="text-2xl font-semibold text-slate-900">
+                  No lawyers match these filters.
+                </h2>
                 <p className="mt-3 text-slate-600">
                   Reset the filters or widen the intake criteria to see more relevant profiles.
                 </p>
@@ -474,7 +514,9 @@ export default function LawyersPage() {
 
                           {matchReasons.length > 0 ? (
                             <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-                              <p className="text-sm font-semibold text-emerald-900">Why this looks relevant</p>
+                              <p className="text-sm font-semibold text-emerald-900">
+                                Why this looks relevant
+                              </p>
                               <ul className="mt-2 space-y-1 text-sm text-emerald-800">
                                 {matchReasons.map((reason) => (
                                   <li key={reason}>- {reason}</li>
@@ -487,7 +529,9 @@ export default function LawyersPage() {
                             <Fact label="Experience" value={`${lawyer.years_experience} years`} />
                             <Fact
                               label="Languages"
-                              value={lawyer.languages.length ? lawyer.languages.join(', ') : 'Not listed'}
+                              value={
+                                lawyer.languages.length ? lawyer.languages.join(', ') : 'Not listed'
+                              }
                             />
                             <Fact
                               label="Typical response"
@@ -510,7 +554,7 @@ export default function LawyersPage() {
                                 <Clock className="mr-2 h-4 w-4" />
                                 <span>
                                   {formats.length > 0
-                                    ? formats.join(' | ')
+                                    ? formats.join(' / ')
                                     : formatConsultationType('consultation')}
                                 </span>
                               </div>
@@ -524,7 +568,7 @@ export default function LawyersPage() {
                 })}
               </div>
             )}
-          </main>
+          </section>
         </div>
       </div>
     </div>
